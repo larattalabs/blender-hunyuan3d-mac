@@ -210,22 +210,27 @@ lantern reference):
 
 ## Making it a game asset
 
-What comes out is a raw isosurface — hundreds of thousands of tris, tens of thousands of
-disconnected islands, ~27% non-manifold edges. Never hand that to an engine, and never try to
-decimate it directly (it shreds the UVs and stalls above budget):
+What comes out is a raw isosurface of several hundred thousand tris. It also *reports* tens of
+thousands of disconnected islands — but that is hy3d's paint stage splitting the mesh along UV
+seams, not holes (a bare tree: 46 islands before painting, 5,425 after, same face count). Welding
+the seams first is what makes everything else work:
 
 ```bash
 "$HY3D_DIR/scripts/gameify.sh" model.glb model_game.glb 15000 2048
 ```
 
-Remesh → decimate to budget → unwrap → bake albedo + AO + normal off the dense original, ~6s.
-Measured: lantern 1,006,732 → 15,000 tris (1 island); oak 1,980,060 → 15,000 (25 islands).
+Default path: weld seams → decimate to budget → force metallic 0 → resize texture. Keeps the
+original texture and UVs, hits budget exactly, and preserves thin structures. Measured: lantern
+1,006,732 → 15,000 tris (6 islands, 8 MB); oak 1,980,060 → 15,000 (68 islands, 9.9 MB); a spindly
+bare tree keeps every branch. `--mode remesh` re-bakes onto fresh uniform topology instead — use it
+only if a welded mesh still will not decimate, since it rounds off thin features.
 
 - **Generate at `high`, then gameify.** The dense mesh is the bake source; its detail survives in
   the normal map. Generating at `fast` to "get a smaller model" throws that away and still leaves
   broken topology.
-- **Thin structures are the limit.** A bare spindly tree kept its main branches but lost fine twigs
-  and fell into 373 fragments. Chunky props come through nearly perfectly.
+- **Thin structures** survive the default path but not `--mode remesh`. A few detached twigs come
+  from the shape stage itself (46 islands at octree 384, 36 at 512) — raise the octree if branch
+  connectivity matters, or prompt for thicker limbs.
 - Budgets: 5–15k tris with a 2k texture is a reasonable background prop.
 
 ## Limits — state these plainly, don't work around them silently

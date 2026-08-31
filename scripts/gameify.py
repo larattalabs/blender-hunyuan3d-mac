@@ -1,7 +1,15 @@
 """Turn a generated GLB into a game-ready asset: clean topology + baked maps.
 
     blender -b --python gameify.py -- in.glb out.glb [--tris 15000] [--tex 2048]
-                                      [--voxel auto|0.006] [--no-normal] [--keep-source]
+                                      [--mode decimate|remesh] [--voxel auto|0.006]
+                                      [--no-normal] [--no-ao] [--keep-source]
+
+Two paths:
+  decimate (default) — weld the UV-seam splits, then decimate to budget. Keeps the original
+      texture and UVs, hits the budget exactly, and preserves thin structures. Use this.
+  remesh            — voxel remesh, then re-bake albedo/AO/normal onto fresh UVs. Uniform
+      topology and a watertight result, at the cost of re-projected textures and rounded-off
+      thin features. Reach for it when the welded mesh still will not decimate.
 
 Generated meshes are raw isosurfaces — a lantern came out at 1,006,732 tris in 47,870
 disconnected islands with 27% of its edges non-manifold. Decimating that directly shreds the
@@ -38,13 +46,14 @@ def parse_args(argv):
     a = argv[argv.index("--") + 1:] if "--" in argv else argv
     if len(a) < 2:
         raise SystemExit(__doc__)
-    opts = {"src": a[0], "dst": a[1], "tris": 15000, "tex": 2048,
+    opts = {"src": a[0], "dst": a[1], "tris": 15000, "tex": 2048, "mode": "decimate",
             "voxel": "auto", "normal": True, "ao": True, "keep_source": False}
     i = 2
     while i < len(a):
         k = a[i]
         if k == "--tris": i += 1; opts["tris"] = int(a[i])
         elif k == "--tex": i += 1; opts["tex"] = int(a[i])
+        elif k == "--mode": i += 1; opts["mode"] = a[i]
         elif k == "--voxel": i += 1; opts["voxel"] = a[i]
         elif k == "--no-normal": opts["normal"] = False
         elif k == "--no-ao": opts["ao"] = False
@@ -119,7 +128,61 @@ def main():
     voxel = size / 400.0 if o["voxel"] == "auto" else float(o["voxel"])
 
     n, isl, nm = mesh_stats(source)
+    # hy3d paint unwraps with xatlas and exports the mesh split along every UV seam, so a painted
+    # asset reports tens of thousands of "islands" that are not holes at all (the bare tree: 46
+    # islands as generated, 5,425 after painting, same face count). Weld them back so the stats
+    # mean something and the bake source is coherent.
+    bpy.ops.object.select_all(action="DESELECT")
+    source.select_set(True)
+    bpy.context.view_layer.objects.active = source
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.remove_doubles(threshold=1e-5)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    n_w, isl_w, nm_w = mesh_stats(source)
     log(f"source: {n} tris, {isl} islands, {nm} non-manifold edges, {size:.3f} units tall")
+    log(f"welded UV seams: {isl_w} real islands, {nm_w} non-manifold edges")
+
+    if o["mode"] not in ("decimate", "remesh"):
+        raise SystemExit("--mode must be 'decimate' or 'remesh'")
+
+    if o["mode"] == "decimate":
+        # Welding the UV-seam splits is what makes plain decimation work: before it, a 15k
+        # request on the lantern stalled at 20,579 tris and shredded the texture; after it,
+        # decimation lands exactly on budget, keeps the UV layer, and the original (4096²)
+        # texture comes along untouched — no re-bake, no re-projection loss.
+        target = source
+        target.name = "gameready"
+        m = target.modifiers.new("tri", "TRIANGULATE")
+        bpy.ops.object.modifier_apply(modifier=m.name)
+        cur = len(target.data.polygons)
+        if cur > o["tris"]:
+            m = target.modifiers.new("dec", "DECIMATE")
+            m.ratio = o["tris"] / cur
+            bpy.ops.object.modifier_apply(modifier=m.name)
+        n2, isl2, nm2 = mesh_stats(target)
+        log(f"target: {n2} tris, {isl2} islands, {nm2} non-manifold edges (original texture kept)")
+        if n2 > o["tris"] * 1.25:
+            log(f"WARNING: could not reach {o['tris']} tris — try --mode remesh")
+        for mtl in target.data.materials:
+            if not mtl:
+                continue
+            b = next((x for x in mtl.node_tree.nodes if x.type == "BSDF_PRINCIPLED"), None)
+            if b and not b.inputs["Metallic"].links:
+                b.inputs["Metallic"].default_value = 0.0   # glTF defaults metallicFactor to 1
+            for nd in mtl.node_tree.nodes:      # a 4096² paint texture is 25MB of GLB on its own
+                if nd.type == "TEX_IMAGE" and nd.image and max(nd.image.size) > o["tex"]:
+                    was = tuple(nd.image.size)
+                    nd.image.scale(o["tex"], o["tex"])
+                    nd.image.pack()
+                    log(f"resized {nd.image.name} {was} -> {o['tex']}x{o['tex']}")
+        bpy.ops.object.select_all(action="DESELECT")
+        target.select_set(True)
+        bpy.context.view_layer.objects.active = target
+        bpy.ops.export_scene.gltf(filepath=o["dst"], export_format="GLB", use_selection=True)
+        log(f"wrote {o['dst']} ({os.path.getsize(o['dst'])/1e6:.1f} MB)")
+        print(f"GAMEIFY_RESULT tris={n2} islands={isl2} nonmanifold={nm2} src_tris={n}")
+        return
 
     bpy.ops.object.select_all(action="DESELECT")
     source.select_set(True)
@@ -141,6 +204,27 @@ def main():
         m = target.modifiers.new("dec", "DECIMATE")
         m.ratio = o["tris"] / cur
         bpy.ops.object.modifier_apply(modifier=m.name)
+
+    # Drop confetti the remesh leaves behind — pieces this small are never a real part.
+    bm = bmesh.new(); bm.from_mesh(target.data)
+    seen = set(); kill = []
+    for f in bm.faces:
+        if f.index in seen:
+            continue
+        stack = [f]; comp = []; seen.add(f.index)
+        while stack:
+            c = stack.pop(); comp.append(c)
+            for e in c.edges:
+                for lf in e.link_faces:
+                    if lf.index not in seen:
+                        seen.add(lf.index); stack.append(lf)
+        if len(comp) < 8:
+            kill.extend(comp)
+    if kill:
+        bmesh.ops.delete(bm, geom=kill, context="FACES")
+        bm.to_mesh(target.data); target.data.update()
+        log(f"dropped {len(kill)} faces of sub-8-face confetti")
+    bm.free()
 
     n2, isl2, nm2 = mesh_stats(target)
     log(f"target: {n2} tris, {isl2} islands, {nm2} non-manifold edges")

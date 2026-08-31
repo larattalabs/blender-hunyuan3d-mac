@@ -150,33 +150,43 @@ install to produce reference images with 3D-friendly framing. Any image works; b
 
 ## Game assets
 
-A generated mesh is not a game asset. The lantern arrived as **1,006,732 tris in 47,870
-disconnected islands with 27% of its edges non-manifold** — a raw isosurface. Decimating it
-directly shreds the UVs, and a 15k request stalls at 20,579 tris because non-manifold edges block
-edge collapse. Generating at `fast` does not help; it produces a *smaller* mesh with the same
-problems and less detail to bake from.
+A generated mesh is not a game asset — a lantern arrives at 1,006,732 tris. But the alarming part
+of that (47,870 "islands", 27% non-manifold edges) is **an artefact of the paint stage**, not broken
+geometry: hy3d unwraps with xatlas and exports the mesh split along every UV seam. Painting a bare
+tree took it from 46 islands to 5,425 with the face count unchanged. Weld those seams back
+(`Merge by Distance`) and the lantern is 6 islands with **zero** non-manifold edges.
+
+That one step changes everything downstream: before welding, a 15k decimation request stalled at
+20,579 tris and shredded the texture; after it, decimation lands exactly on budget and carries the
+original UVs and texture through untouched.
 
 ```bash
 ./scripts/gameify.sh model.glb model_game.glb 15000 2048
 ```
 
-voxel remesh → triangulate + decimate to budget → smart UV unwrap → bake albedo, AO and a
-tangent-space normal map off the dense original. About 6 seconds. Measured:
+**Default (`--mode decimate`)**: weld UV seams → triangulate → decimate to budget → drop metallic
+→ resize the texture to `--tex`. Keeps the original texture and UVs. A couple of seconds. Measured:
 
-| asset | source | game-ready | islands after |
-|---|---|---|---|
-| stone lantern | 1,006,732 tris | 15,000 | 1 |
-| pine | 607,564 | 15,000 | 16 |
-| oak | 1,980,060 | 15,000 | 25 |
-| bare spindly tree | 135,348 | 15,000 | 373 |
+| asset | source | islands as-shipped | islands welded | game-ready | file |
+|---|---|---|---|---|---|
+| stone lantern | 1,006,732 tris | 47,870 | **6** | 15,000 | 8.0 MB |
+| pine | 607,564 | 29,832 | **21** | 15,000 | 8.6 MB |
+| oak | 1,980,060 | 94,061 | **67** | 15,000 | 9.9 MB |
+| bare spindly tree | 135,348 | 5,743 | **29** | 14,999 | 8.5 MB |
+
+`--mode remesh` is the fallback: voxel remesh → decimate → fresh UVs → bake albedo, AO and a
+tangent-space normal map off the dense original (~6s). It gives uniform, watertight topology, but
+re-projects the texture and rounds off thin features — the spindly tree loses fine twigs there
+while the decimate path keeps them. Use it only when a welded mesh still refuses to decimate.
 
 The dense mesh is the **bake source**, not the deliverable — its detail lives on in the normal map.
 That is the real argument for generating at `high`.
 
-**Thin structures are the limit.** Voxel remeshing rounds off anything near voxel size: the bare
-tree keeps its main branches but loses the finest twigs and breaks into 373 fragments where
-branches were thinner than a voxel. Chunky props survive nearly perfectly. Hero assets still want
-hand retopo.
+**Thin structures** are what separates the two paths. The decimate path keeps every branch of the
+spindly tree; the remesh path rounds off anything near voxel size (at the old `size/200` default it
+shattered that tree into 373 fragments — now `size/400`, 41). A few genuinely detached twigs come
+out of the *shape* stage itself (46 islands at octree 384, 36 at 512) — that is the SDF resolution
+limit, and a finer octree is the only real lever. Hero assets still want hand retopo.
 
 ## Materials arrive dielectric
 
