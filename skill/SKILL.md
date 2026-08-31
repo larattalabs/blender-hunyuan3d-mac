@@ -156,10 +156,25 @@ bpy.ops.object.select_all(action='DESELECT'); o.select_set(True)
 bpy.context.view_layer.objects.active = o
 bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY')   # origin to the object, not the world
 bpy.ops.object.shade_smooth_by_angle()               # keeps hard edges, smooths the rest
-print(o.name, len(o.data.vertices), tuple(o.dimensions))
+
+# Scale to a real-world height and sit it on the floor. Generated meshes arrive ~1-2 units tall
+# with no meaningful scale, so this is the difference between a prop and a monolith.
+TARGET_HEIGHT = 0.35                                 # metres, along Z
+f = TARGET_HEIGHT / o.dimensions.z                   # dimensions already include current scale,
+o.scale = tuple(s * f for s in o.scale)              # so multiply rather than assign (f, f, f)
+bpy.context.view_layer.update()
+bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)   # bake scale back to 1
+o.location.z -= min((o.matrix_world @ v.co).z for v in o.data.vertices)      # drop onto z=0
+bpy.context.view_layer.update()
+print(o.name, len(o.data.vertices), tuple(round(d, 3) for d in o.dimensions))
 ```
 
-Then scale to the scene's units and place it. Ask what real-world size it should be if it matters.
+**Pick the height deliberately** — it is the one number the model cannot give you, and everything
+downstream (physics, DOF, lighting falloff) reads wrong if it's off. Ask the user when it matters;
+otherwise use a sane real-world value: a mug ~0.10, a hurricane lantern ~0.35, a chair ~0.90, a
+door ~2.0, a tree ~5+. If the scene has existing objects, match against those instead of guessing.
+
+Skip the floor-drop line for something that hangs, mounts or floats.
 
 ## Limits — state these plainly, don't work around them silently
 
