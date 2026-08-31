@@ -178,6 +178,18 @@ door ~2.0, a tree ~5+. If the scene has existing objects, match against those in
 
 Skip the floor-drop line for something that hangs, mounts or floats.
 
+## When thin structures come out disconnected
+
+Measured on a bare spindly tree, in order of what actually helps:
+
+1. **Re-roll the seed** — the same settings gave 17 / 25 / 33 / 33 / 56 disconnected pieces across
+   five seeds. `$HY3D_DIR/scripts/best_shape.sh ref.png out.glb 3` generates three and keeps the
+   best. Nothing else comes close.
+2. **Octree 512** — 46 → 36 pieces.
+3. `hy3d shape --level -0.02` dilates the isosurface: 36 → 34. Do not overdo it; -0.4 made it worse.
+4. Prompt for thicker limbs. A few detached twig tips are inherent — delete them in Blender
+   (select linked, delete by size) once you have the best generation you are going to get.
+
 ## Refining a result
 
 When something comes back disappointing, the levers in order of payoff (all measured on the same
@@ -231,7 +243,11 @@ only if a welded mesh still will not decimate, since it rounds off thin features
 - **Thin structures** survive the default path but not `--mode remesh`. A few detached twigs come
   from the shape stage itself (46 islands at octree 384, 36 at 512) — raise the octree if branch
   connectivity matters, or prompt for thicker limbs.
-- Budgets: 5–15k tris with a 2k texture is a reasonable background prop.
+- **Budget by subject.** 15k suits a chunky prop; a big leafy canopy at 15k reads as faceted shards
+  close up — give foliage 40–80k. gameify smooths by angle (default 75°), which fixes the shading
+  but not the silhouette.
+- **Needles and leaves are beyond the model.** A pine is lumpy masses with small spines at any
+  octree or step count; the texture carries it. Say so rather than burning generations on it.
 
 ## Limits — state these plainly, don't work around them silently
 

@@ -188,6 +188,31 @@ shattered that tree into 373 fragments — now `size/400`, 41). A few genuinely 
 out of the *shape* stage itself (46 islands at octree 384, 36 at 512) — that is the SDF resolution
 limit, and a finer octree is the only real lever. Hero assets still want hand retopo.
 
+## Getting better results
+
+Three things were measured against each other on a deliberately hard subject (a bare, spindly tree,
+where thin branches come out detached):
+
+| lever | effect on disconnected pieces |
+|---|---|
+| **seed** | **17 / 25 / 33 / 33 / 56 islands across five seeds** — by far the strongest |
+| octree 384 → 512 | 46 → 36 |
+| marching-cubes isolevel (`--level -0.02`) | 36 → 34; over-dilating (-0.4) makes it *worse* at 47 |
+| more steps / higher guidance | no measurable change |
+
+So for anything spindly, it is a lottery worth re-rolling: `best_shape.sh ref.png out.glb 3` runs
+three seeds (~30s each) and keeps the least fragmented. `hy3d shape --level` is exposed by a local
+patch to Hunyuan3D-Swift (`MarchingCubes.extract` had the isolevel hardcoded to 0.0).
+
+**Budget by subject, not by habit.** 15k tris is plenty for a lantern and far too few for a 6 m oak
+canopy — foliage wants 40–80k, or it reads as faceted shards close up. `gameify.sh` smooths by
+angle (`--smooth`, default 75°) which hides the shading facets, but not the silhouette.
+
+**What no setting fixes:** the shape model cannot represent needles or leaves. A pine comes out as
+lumpy masses with small spines no matter the octree or step count (verified at 512/50 steps) — the
+texture does the work. For convincing conifers, generate the trunk and branch structure and add
+foliage cards in Blender, or pick stylised subjects that suit blobby geometry.
+
 ## Materials arrive dielectric
 
 glTF's spec default for `metallicFactor` is **1.0**, and hy3d's writer omits the factors — so every

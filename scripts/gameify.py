@@ -33,6 +33,7 @@ Two bake details that cost an afternoon, both verified on Blender 5.2:
     no report at all.
 """
 
+import math
 import os
 import sys
 import time
@@ -47,13 +48,14 @@ def parse_args(argv):
     if len(a) < 2:
         raise SystemExit(__doc__)
     opts = {"src": a[0], "dst": a[1], "tris": 15000, "tex": 2048, "mode": "decimate",
-            "voxel": "auto", "normal": True, "ao": True, "keep_source": False}
+            "voxel": "auto", "normal": True, "ao": True, "keep_source": False, "smooth": 75.0}
     i = 2
     while i < len(a):
         k = a[i]
         if k == "--tris": i += 1; opts["tris"] = int(a[i])
         elif k == "--tex": i += 1; opts["tex"] = int(a[i])
         elif k == "--mode": i += 1; opts["mode"] = a[i]
+        elif k == "--smooth": i += 1; opts["smooth"] = float(a[i])
         elif k == "--voxel": i += 1; opts["voxel"] = a[i]
         elif k == "--no-normal": opts["normal"] = False
         elif k == "--no-ao": opts["ao"] = False
@@ -160,6 +162,11 @@ def main():
             m = target.modifiers.new("dec", "DECIMATE")
             m.ratio = o["tris"] / cur
             bpy.ops.object.modifier_apply(modifier=m.name)
+        # Decimated foliage reads as faceted shards under flat shading; smoothing by angle hides
+        # the facets while keeping genuine hard edges. Costs nothing and travels in the glTF normals.
+        bpy.ops.object.select_all(action="DESELECT")
+        target.select_set(True); bpy.context.view_layer.objects.active = target
+        bpy.ops.object.shade_smooth_by_angle(angle=math.radians(o["smooth"]))
         n2, isl2, nm2 = mesh_stats(target)
         log(f"target: {n2} tris, {isl2} islands, {nm2} non-manifold edges (original texture kept)")
         if n2 > o["tris"] * 1.25:
