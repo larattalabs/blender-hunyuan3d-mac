@@ -29,10 +29,10 @@ ENABLED = os.environ.get("BLENDERMCP_HUNYUAN3D_AUTOSTART", "1") != "0"
 # Texture generation works locally now (MLX port of Hunyuan3D-Paint), so it is on by default.
 # It costs ~70-90s on top of ~11s of shape; set this to 0 for shape-only speed.
 TEXTURE = os.environ.get("BLENDERMCP_HUNYUAN3D_TEXTURE", "1") != "0"
-# Panel defaults. The addon ships steps=20; shape runs on MLX in ~11s at 30, so the extra
-# quality is nearly free. Octree 256 is the sane default — 384/512 buy fine detail slowly.
-OCTREE = int(os.environ.get("BLENDERMCP_HUNYUAN3D_OCTREE", "256"))
-STEPS = int(os.environ.get("BLENDERMCP_HUNYUAN3D_STEPS", "30"))
+# Panel defaults, matched to the bridge's default "high" quality preset: octree 384 and 40 shape
+# steps. On MLX that is ~45s of shape, and it resolves detail the 256/20 defaults merge together.
+OCTREE = int(os.environ.get("BLENDERMCP_HUNYUAN3D_OCTREE", "384"))
+STEPS = int(os.environ.get("BLENDERMCP_HUNYUAN3D_STEPS", "40"))
 GUIDANCE = float(os.environ.get("BLENDERMCP_HUNYUAN3D_GUIDANCE", "5.5"))
 
 _proc = None

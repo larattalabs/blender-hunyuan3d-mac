@@ -1,7 +1,8 @@
 # blender-hunyuan3d-mac
 
 **Textured 3D asset generation inside Blender, entirely on an Apple Silicon Mac.** No CUDA, no cloud
-API, no keys. An image goes in, a textured mesh lands in your scene about 90 seconds later.
+API, no keys. An image goes in, a textured mesh lands in your scene — about 6½ minutes at the
+default quality, or 95 seconds with `HY3D_QUALITY=fast` while you iterate.
 
 ![A generated treasure chest and oil lantern](assets/chest.png)
 
@@ -11,8 +12,8 @@ and expects raw GLB bytes back — but ships no server to answer it. This is tha
 Tencent's shape **and paint** pipelines.
 
 ```
-Blender addon (:9876) ──POST /generate──▶ bridge.py (:8081) ──▶ hy3d shape (MLX)   ~11s
-                      ◀──── GLB bytes ────                  └──▶ hy3d paint (MLX)  ~72s
+Blender addon (:9876) ──POST /generate──▶ bridge.py (:8081) ──▶ hy3d shape (MLX)   ~45s
+                      ◀──── GLB bytes ────                  └──▶ hy3d paint (MLX)  ~5m45s
 ```
 
 It starts with Blender, stops with Blender, and needs nothing running in the background otherwise.
@@ -36,7 +37,7 @@ Every other route to Hunyuan3D on a Mac is either shape-only or CUDA-only:
 - Xcode / Swift toolchain (to build the MLX engine) and `git`, `python3`, `curl`.
   The bridge is stdlib-only on purpose: Blender's environment may resolve `python3` to Xcode's
   (3.9 here) rather than your Homebrew one. Verified on both 3.9 and 3.14.
-- ~15GB of disk for weights.
+- ~20GB of disk for weights (15GB if you skip `shape-large` and run `HY3D_QUALITY=fast`).
 
 ## Install
 
@@ -44,7 +45,8 @@ Every other route to Hunyuan3D on a Mac is either shape-only or CUDA-only:
 git clone https://github.com/larattalabs/blender-hunyuan3d-mac.git
 cd blender-hunyuan3d-mac
 
-# 1. weights (~15GB) — shape + both paint models
+# 1. weights (~20GB) — both shape models + both paint models
+hf download zimengxiong/hunyuan3d-mlx-shape-large --local-dir ~/AI/hunyuan3d-mlx/weights/shape-large
 hf download zimengxiong/hunyuan3d-mlx-shape-small --local-dir ~/AI/hunyuan3d-mlx/weights/shape-small
 hf download zimengxiong/hunyuan3d-mlx-paint-small --local-dir ~/AI/hunyuan3d-mlx/weights/paint-small
 hf download zimengxiong/hunyuan3d-mlx-paint-large --local-dir ~/AI/hunyuan3d-mlx/weights/paint-large
@@ -115,21 +117,21 @@ is metal** — and expect to set Metallic by hand in the metal case.
 
 ## Quality presets
 
-`HY3D_QUALITY=fast` (default) or `high`, or per request `{"quality": "high"}`. `high` swaps in the
-larger shape model and paints at higher resolution:
+`HY3D_QUALITY=high` (**default**) or `fast`, or per request `{"quality": "fast"}`:
 
 | preset | shape | paint | time | what changes |
 |---|---|---|---|---|
-| `fast` | `shape-small`, octree 256 | res 512, 15 steps, 2048² | ~95 s | everyday assets |
-| `high` | `shape-large`, octree 384 | res 768, 25 steps, 4096² | ~6.5 min | separated fine parts, crisper texture |
+| **`high`** (default) | `shape-large`, octree 384 | res 768, 25 steps, 4096² | ~6.5 min | separated fine parts, crisp perforations and rivets |
+| `fast` | `shape-small`, octree 256 | res 512, 15 steps, 2048² | ~95 s | soft detail — fine parts merge. Good for iterating on the reference image |
+
+`high` is the default because the difference isn't subtle: on a hurricane lantern it turns a fused
+wire cage into separate wires and blank collar into visible rivets. Iterate on the reference image
+with `fast`, then run the keeper at `high`.
 
 Individual overrides: `shape_model` (`small`/`large`), `paint_res`, `paint_steps`, `paint_tex` per
 request, or `HY3D_PAINT_RES` / `_STEPS` / `_TEX` / `HY3D_SHAPE_WEIGHTS_LARGE` in the environment.
-`shape-large` is a separate 4.9GB download:
-
-```bash
-hf download zimengxiong/hunyuan3d-mlx-shape-large --local-dir ~/AI/hunyuan3d-mlx/weights/shape-large
-```
+If `shape-large` isn't downloaded, the `high` preset falls back to `shape-small` for shape and still
+paints at high resolution — no error, just less geometric detail.
 
 **Where texture detail goes:** paint renders six views weighted `front 1.0, back 0.5, left/right 0.1,
 top/bottom 0.05`. Generate from the angle the asset will be seen from — sides come out softer than
@@ -151,11 +153,14 @@ install to produce reference images with 3D-friendly framing. Any image works; b
 | step | time |
 |---|---|
 | reference image (Krea 2 Turbo, 768²) | ~25 s |
-| shape (`shape-small`, 30 steps, octree 256) | **~11 s** |
-| shape via the ComfyUI fallback, same settings | ~180 s |
-| texture, RGB (15 steps, +super-res) | ~72 s |
-| texture, PBR (4096² albedo + MR) | ~114 s |
-| **image → textured mesh** | **~85 s** |
+| shape, `shape-large`, 40 steps, octree 384 (default) | ~45 s |
+| shape, `shape-small`, 30 steps, octree 256 (`fast`) | **~11 s** |
+| shape via the ComfyUI fallback | ~180 s |
+| texture, RGB at res 768 / 25 steps / 4096² (default) | ~5m45 s |
+| texture, RGB at res 512 / 15 steps / 2048² (`fast`) | ~72 s |
+| texture, PBR (4096² albedo + MR, `fast` render settings) | ~114 s |
+| **image → textured mesh, default `high`** | **~6.5 min** |
+| **image → textured mesh, `fast`** | **~95 s** |
 
 Peak memory during paint is ~38GB. Run one job at a time.
 
@@ -172,6 +177,7 @@ Peak memory during paint is ~38GB. Run one job at a time.
 
 | var | default | meaning |
 |---|---|---|
+| `HY3D_QUALITY` | `high` | `high` or `fast` — see Quality presets |
 | `HY3D_SHAPE_BACKEND` | `auto` | `mlx`, `comfy`, or auto (MLX when its weights exist) |
 | `HY3D_PAINT_MODEL` | `rgb` | `rgb` or `pbr` |
 | `HY3D_SHAPE_WEIGHTS` / `HY3D_PAINT_WEIGHTS` | `~/AI/hunyuan3d-mlx/weights/…` | weight roots |
@@ -180,7 +186,7 @@ Peak memory during paint is ~38GB. Run one job at a time.
 | `HY3D_PORT` | `8081` | bridge port (must match the addon's API URL) |
 | `BLENDERMCP_HUNYUAN3D_AUTOSTART` | `1` | let Blender start/stop the endpoint |
 | `BLENDERMCP_HUNYUAN3D_TEXTURE` | `1` | default state of the panel's texture checkbox |
-| `BLENDERMCP_HUNYUAN3D_STEPS` / `_OCTREE` / `_GUIDANCE` | `30` / `256` / `5.5` | panel defaults per file |
+| `BLENDERMCP_HUNYUAN3D_STEPS` / `_OCTREE` / `_GUIDANCE` | `40` / `384` / `5.5` | panel defaults per file |
 
 A ComfyUI fallback for the shape stage is included (`HY3D_SHAPE_BACKEND=comfy`) for machines without
 the MLX engine built. It's slower and can't texture; you shouldn't need it.

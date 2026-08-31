@@ -65,10 +65,11 @@ SHAPE_WEIGHTS_LARGE = os.path.expanduser(os.environ.get(
     "HY3D_SHAPE_WEIGHTS_LARGE", "~/AI/hunyuan3d-mlx/weights/shape-large"))
 SHAPE_TIMEOUT = int(os.environ.get("HY3D_SHAPE_TIMEOUT", "900"))
 
-# Quality presets. "fast" is the everyday setting; "high" swaps in the larger shape model and
-# paints at higher render/texture resolution — visibly crisper, and roughly 4x the wall time.
-# Measured on a lantern: fast ~95s total, high ~8min. Individual knobs below override the preset.
-QUALITY = os.environ.get("HY3D_QUALITY", "fast").lower()
+# Quality presets. "high" is the default: the larger shape model plus higher paint render and
+# texture resolution, which is the difference between merged blobs and separated parts.
+# Measured on a lantern: high ~6.5min, fast ~95s. Set HY3D_QUALITY=fast while iterating.
+# Individual knobs below override whichever preset is active.
+QUALITY = os.environ.get("HY3D_QUALITY", "high").lower()
 PRESETS = {
     "fast": {"shape": "small", "res": 512, "paint_steps": 15, "tex": 2048},
     "high": {"shape": "large", "res": 768, "paint_steps": 25, "tex": 4096},

@@ -11,7 +11,9 @@ Everything runs on this machine. No API keys, no cloud.
 prompt ──Krea 2 Turbo (~25s)──▶ reference.png ──hy3d shape (~11s)──▶ mesh ──hy3d paint (~72s)──▶ textured ──▶ Blender
 ```
 
-All MLX/Metal, all local. Roughly **2 minutes** from prompt to a textured asset in the scene.
+All MLX/Metal, all local. **~7 minutes** from prompt to a textured asset at the default `high`
+quality; add `"quality": "fast"` to a request (or `HY3D_QUALITY=fast`) for a ~2 minute draft while
+you iterate on the reference image.
 
 Tools live in the blender-hunyuan3d-mac checkout, `$HY3D_DIR` below (see its README for the service itself).
 
@@ -183,10 +185,10 @@ lantern reference):
 
 | lever | how | cost | what it buys |
 |---|---|---|---|
-| **bigger shape model** | `"shape_model": "large"` | 12s → 45s | the big one. Separated wire cage, defined rivets, crisper collar — soft blobs become parts |
+| **bigger shape model** | on by default (`"shape_model": "small"` to disable) | 12s → 45s | the big one. Separated wire cage, defined rivets, crisper collar — soft blobs become parts |
 | **octree 384** | panel slider or `octree` | +5s | modest sharpening; more vertices |
-| **tuned paint** | `"paint_res": 768, "paint_steps": 25, "paint_tex": 4096` | 95s → ~6.5min | burner slots read as holes, less blotching. Hero assets only |
-| **both at once** | `"quality": "high"` | ~6.5 min | the preset that bundles the above (45s shape + 5m45s paint) |
+| **tuned paint** | on by default (`"quality": "fast"` to drop it) | 95s → ~6.5min | burner slots read as holes, less blotching |
+| **draft mode** | `"quality": "fast"` | ~95 s | drops both — use it while iterating, not for the keeper |
 | **re-roll the reference** | new `--seed` | 25s | still the cheapest fix when the shape is simply wrong |
 
 **Where the texture detail goes.** The paint pipeline renders six views and weights them
