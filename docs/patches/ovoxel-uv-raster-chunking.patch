@@ -1,0 +1,57 @@
+--- /private/tmp/claude-501/-Users-noahlaratta/72c37742-d430-43cf-83af-686a1ab194b6/scratchpad/postprocess_cpu.py.bak	2026-08-31 10:13:22
++++ /Users/noahlaratta/AI/trellis2-mlx/o-voxel/o_voxel/postprocess_cpu.py	2026-08-31 10:13:22
+@@ -10,6 +10,7 @@
+ from typing import *
+ from tqdm import tqdm
+ import numpy as np
++import os
+ import torch
+ import torch.nn.functional as F
+ import cv2
+@@ -74,15 +75,39 @@
+     mask_buf = torch.zeros(H, W, dtype=torch.bool, device=device)
+     # Use a depth buffer (face index) to handle overlaps — last writer wins like nvdiffrast
+ 
+-    # Process in chunks to avoid OOM
++    # Chunk by texel budget, not face count.
++    #
++    # The grid below is allocated as (C, max_h, max_w, 2) using the LARGEST uv bounding box in
++    # the chunk, so with a fixed 50k-face chunk a single stretched triangle sizes the grid for
++    # all 50,000 faces. On a lantern at 2048^2 that asked for 33.6 GiB and died with an MPS OOM.
++    # Faces are scatter-written by absolute pixel coord below, so chunk order is irrelevant:
++    # sort by bbox area (keeps each chunk uniform) and cap C * max_h * max_w.
+     num_faces = faces_t.shape[0]
+-    chunk_size = 50000
+-
+-    for start in range(0, num_faces, chunk_size):
+-        end = min(start + chunk_size, num_faces)
+-        chunk_uvs = face_uvs_px[start:end]   # (C, 3, 2)
+-        chunk_verts = face_verts[start:end]   # (C, 3, 3)
++    _bx0 = face_uvs_px[..., 0].min(dim=1).values.floor().clamp(min=0).int()
++    _bx1 = face_uvs_px[..., 0].max(dim=1).values.ceil().clamp(max=W - 1).int()
++    _by0 = face_uvs_px[..., 1].min(dim=1).values.floor().clamp(min=0).int()
++    _by1 = face_uvs_px[..., 1].max(dim=1).values.ceil().clamp(max=H - 1).int()
++    _fw = (_bx1 - _bx0 + 1).clamp(min=0).long()
++    _fh = (_by1 - _by0 + 1).clamp(min=0).long()
++    order = torch.argsort(_fw * _fh)
++    _w_cpu, _h_cpu = _fw[order].cpu(), _fh[order].cpu()
++
++    texel_budget = int(os.environ.get("OVOXEL_RASTER_TEXELS", 16_000_000))
++    max_chunk = 50000
++
++    start = 0
++    while start < num_faces:
++        end = min(start + max_chunk, num_faces)
++        while end > start + 1:
++            mw = int(_w_cpu[start:end].max()); mh = int(_h_cpu[start:end].max())
++            if (end - start) * max(mw, 1) * max(mh, 1) <= texel_budget:
++                break
++            end = start + max(1, (end - start) // 2)
++        sel = order[start:end]
++        chunk_uvs = face_uvs_px[sel]     # (C, 3, 2)
++        chunk_verts = face_verts[sel]    # (C, 3, 3)
+         C = chunk_uvs.shape[0]
++        start = end
+ 
+         # Bounding boxes per face: (C,)
+         bb_min_x = chunk_uvs[..., 0].min(dim=1).values.floor().clamp(min=0).int()

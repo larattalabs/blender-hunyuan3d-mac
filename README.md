@@ -148,6 +148,8 @@ the back, and top/bottom faces are nearly unpainted.
 ./scripts/image_to_3d.sh ref.png out.glb 256 30 rgb   # image → textured GLB (5th arg: rgb|pbr|none)
 ./scripts/preview.sh out.glb preview.png              # headless render, so you can see the result
 ./scripts/make_reference.sh "a weathered treasure chest with iron bands" ref.png 3
+./scripts/best_shape.sh ref.png shape.glb 3 512 40  # 3 seeds, keep the least fragmented
+python3 prep_rgba.py ref.png ref_rgba.png            # key to RGBA (for pipelines that self-matte)
 ```
 
 `make_reference.sh` is optional — it drives a local [Krea 2 Turbo MLX](https://github.com/avlp12/krea2_alis_mlx)
@@ -269,6 +271,14 @@ Peak memory during paint is ~38GB. Run one job at a time.
 
 A ComfyUI fallback for the shape stage is included (`HY3D_SHAPE_BACKEND=comfy`) for machines without
 the MLX engine built. It's slower and can't texture; you shouldn't need it.
+
+## How it compares to TRELLIS.2
+
+[`docs/trellis2-comparison.md`](docs/trellis2-comparison.md) measures both pipelines on the same
+references. TRELLIS.2 builds structurally better geometry — individual leaves, clean thin branches —
+but its cost scales with occupied volume (a bushy oak took **2h46m** against Hunyuan's ~10 min) and
+its leaf-card output resists both decimation and remeshing. Hunyuan is the throughput and
+game-asset choice; TRELLIS is the hero-asset one.
 
 ## Using it with a coding agent
 
