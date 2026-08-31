@@ -27,24 +27,18 @@ for i in $(seq 1 "$TRIES"); do
   seed=$((i * 7919 % 100000))
   "$MLX_DIR/.build/release/hy3d" shape "$prep" -o "$work/try$i.glb" --weights "$WEIGHTS" \
       --steps "$STEPS" --octree "$OCTREE" --seed "$seed" >/dev/null 2>&1
+  # Counting islands with a Python BFS crawls on a 2M-face canopy (minutes). Blender's
+  # separate-by-loose-parts does the same job in C, then we just count the objects.
   n=$("$BLENDER" -b --python-expr "
-import bpy,bmesh,sys
+import bpy
 bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.import_scene.gltf(filepath='$work/try$i.glb')
 o=[x for x in bpy.context.scene.objects if x.type=='MESH'][0]
 bpy.context.view_layer.objects.active=o; o.select_set(True)
 bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.remove_doubles(threshold=1e-5); bpy.ops.object.mode_set(mode='OBJECT')
-bm=bmesh.new(); bm.from_mesh(o.data); seen=set(); n=0
-for f in bm.faces:
-    if f.index in seen: continue
-    n+=1; st=[f]; seen.add(f.index)
-    while st:
-        c=st.pop()
-        for e in c.edges:
-            for lf in e.link_faces:
-                if lf.index not in seen: seen.add(lf.index); st.append(lf)
-print('ISLANDCOUNT', n)
+bpy.ops.mesh.remove_doubles(threshold=1e-5)
+bpy.ops.mesh.separate(type='LOOSE'); bpy.ops.object.mode_set(mode='OBJECT')
+print('ISLANDCOUNT', len([x for x in bpy.context.scene.objects if x.type=='MESH']))
 " 2>/dev/null | grep ISLANDCOUNT | awk '{print $2}')
   echo "  seed $seed -> ${n:-?} islands"
   if [ -n "${n:-}" ] && [ "$n" -lt "$best_n" ]; then best_n=$n; best="$work/try$i.glb"; fi
