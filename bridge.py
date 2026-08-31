@@ -64,6 +64,12 @@ SHAPE_WEIGHTS = os.path.expanduser(os.environ.get(
 SHAPE_WEIGHTS_LARGE = os.path.expanduser(os.environ.get(
     "HY3D_SHAPE_WEIGHTS_LARGE", "~/AI/hunyuan3d-mlx/weights/shape-large"))
 SHAPE_TIMEOUT = int(os.environ.get("HY3D_SHAPE_TIMEOUT", "900"))
+# Cap the shape mesh before painting. At octree 512 a bushy subject can come out at 4M faces,
+# which kills the paint stage (xatlas unwrap + 4096² bake) with no gain — a 1.2M-face version
+# paints identically, since the texture carries the detail. 0 disables the cap.
+MAX_SHAPE_FACES = int(os.environ.get("HY3D_MAX_SHAPE_FACES", "1500000"))
+BLENDER = os.path.expanduser(os.environ.get(
+    "HY3D_BLENDER", "/Applications/Blender.app/Contents/MacOS/Blender"))
 
 # Quality presets. "high" is the default: the larger shape model plus higher paint render and
 # texture resolution, which is the difference between merged blobs and separated parts.
@@ -449,6 +455,63 @@ def demetalise_glb(glb):
         return glb
 
 
+def glb_face_count(glb):
+    """Face count straight from the GLB's JSON chunk — no Blender, no mesh load."""
+    try:
+        length = int.from_bytes(glb[8:12], "little")
+        off = 12
+        while off < length:
+            clen = int.from_bytes(glb[off:off + 4], "little")
+            if glb[off + 4:off + 8] == b"JSON":
+                doc = json.loads(glb[off + 8:off + 8 + clen].decode("utf-8"))
+                acc = doc.get("accessors", [])
+                total = 0
+                for mesh in doc.get("meshes", []):
+                    for prim in mesh.get("primitives", []):
+                        i = prim.get("indices")
+                        if i is not None and i < len(acc):
+                            total += acc[i].get("count", 0) // 3
+                return total
+            off += 8 + clen
+    except Exception as e:
+        log(f"could not read the GLB face count: {e}")
+    return 0
+
+
+def cap_shape_faces(glb):
+    """Decimate the shape mesh to MAX_SHAPE_FACES if it is over budget."""
+    if MAX_SHAPE_FACES <= 0:
+        return glb
+    faces = glb_face_count(glb)
+    if faces <= MAX_SHAPE_FACES:
+        return glb
+    script = os.path.join(HERE, "scripts", "decimate_glb.py")
+    if not (os.path.exists(BLENDER) and os.path.exists(script)):
+        log(f"shape is {faces} faces but Blender or decimate_glb.py is missing — painting as-is")
+        return glb
+    tmpdir = tempfile.mkdtemp(prefix="hy3dcap")
+    src, dst = os.path.join(tmpdir, "in.glb"), os.path.join(tmpdir, "out.glb")
+    try:
+        with open(src, "wb") as fh:
+            fh.write(glb)
+        log(f"shape is {faces} faces — decimating to {MAX_SHAPE_FACES} before painting")
+        r = subprocess.run([BLENDER, "-b", "--python", script, "--", src, dst,
+                            str(MAX_SHAPE_FACES)], capture_output=True, timeout=900)
+        if r.returncode != 0 or not os.path.exists(dst):
+            log(f"decimation failed, painting the full mesh: "
+                f"{(r.stderr or r.stdout).decode(errors='replace')[-400:]}")
+            return glb
+        with open(dst, "rb") as fh:
+            out = fh.read()
+        log(f"capped to {glb_face_count(out)} faces")
+        return out
+    except Exception as e:
+        log(f"decimation error, painting the full mesh: {e}")
+        return glb
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 def resolve_image(image):
     """The addon sends base64; accept a local path or http(s) URL too."""
     if re.match(r"^https?://", image, re.IGNORECASE):
@@ -488,6 +551,7 @@ class Handler(BaseHTTPRequestHandler):
                     "comfy_url": COMFY_URL,
                     "checkpoint": CKPT,
                     "shape_backend": shape_backend(),
+                    "max_shape_faces": MAX_SHAPE_FACES,
                     "quality": {"preset": QUALITY, **preset(),
                                 "shape_large_available": os.path.isdir(SHAPE_WEIGHTS_LARGE)},
                     "mode": "shape + MLX texture" if paint_available() else "shape only (paint not installed)",
@@ -566,6 +630,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if want_texture:
             try:
+                glb = cap_shape_faces(glb)
                 glb = paint_mesh(
                     glb, raw, data.get("paint_model"),
                     res=int(data.get("paint_res", os.environ.get("HY3D_PAINT_RES", q["res"]))),

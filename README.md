@@ -133,6 +133,11 @@ request, or `HY3D_PAINT_RES` / `_STEPS` / `_TEX` / `HY3D_SHAPE_WEIGHTS_LARGE` in
 If `shape-large` isn't downloaded, the `high` preset falls back to `shape-small` for shape and still
 paints at high resolution — no error, just less geometric detail.
 
+**Shape output is capped before painting.** At octree 512 a bushy subject can reach 4M faces, which
+kills the paint stage (xatlas unwrap + 4096² bake) — an oak did exactly that. The bridge now counts
+faces straight from the GLB header and decimates over-budget meshes to `HY3D_MAX_SHAPE_FACES`
+(default 1.5M, ~16s) first. Paint quality is unaffected; the texture carries the detail.
+
 **Where texture detail goes:** paint renders six views weighted `front 1.0, back 0.5, left/right 0.1,
 top/bottom 0.05`. Generate from the angle the asset will be seen from — sides come out softer than
 the back, and top/bottom faces are nearly unpainted.
@@ -255,6 +260,7 @@ Peak memory during paint is ~38GB. Run one job at a time.
 | `HY3D_PAINT_MODEL` | `rgb` | `rgb` or `pbr` |
 | `HY3D_SHAPE_WEIGHTS` / `HY3D_PAINT_WEIGHTS` | `~/AI/hunyuan3d-mlx/weights/…` | weight roots |
 | `HY3D_PAINT_BIN` | `~/AI/hunyuan3d-mlx/.build/release/hy3d` | the MLX binary |
+| `HY3D_MAX_SHAPE_FACES` | `1500000` | decimate the shape before painting if it exceeds this (0 disables) |
 | `HY3D_PREPROCESS` | `1` | input matte/crop |
 | `HY3D_PORT` | `8081` | bridge port (must match the addon's API URL) |
 | `BLENDERMCP_HUNYUAN3D_AUTOSTART` | `1` | let Blender start/stop the endpoint |

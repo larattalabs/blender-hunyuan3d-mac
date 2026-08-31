@@ -259,6 +259,9 @@ only if a welded mesh still will not decimate, since it rounds off thin features
 - **Texture works** (MLX port of Hunyuan3D-Paint, set up 2026-08-30) — no CUDA needed. The imported
   object arrives with a material and a baked texture image. Textures are convincing on hard-surface
   props; on smooth featureless forms the paint model bakes some shading smudges into the albedo.
+- **Huge shapes are capped before painting.** Octree 512 on a bushy subject can hit 4M faces, which
+  the paint stage cannot unwrap; the bridge decimates over 1.5M automatically. Driving `hy3d` by
+  hand, do the same or paint will die with no useful error.
 - **One at a time.** Paint peaks near 38GB. Don't fan out parallel generations.
 - **The ComfyUI fallback** (`HY3D_SHAPE_BACKEND=comfy`) is ~180s and shape-only. You should not need
   it; if `health` reports `shape_backend: comfy`, the MLX weights or `mlx.metallib` are missing —
