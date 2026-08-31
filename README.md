@@ -113,6 +113,28 @@ b.inputs["Metallic"].default_value = 1.0
 Rule of thumb: **rgb for wood, stone, fabric and organic props; pbr when the asset must relight or
 is metal** — and expect to set Metallic by hand in the metal case.
 
+## Quality presets
+
+`HY3D_QUALITY=fast` (default) or `high`, or per request `{"quality": "high"}`. `high` swaps in the
+larger shape model and paints at higher resolution:
+
+| preset | shape | paint | time | what changes |
+|---|---|---|---|---|
+| `fast` | `shape-small`, octree 256 | res 512, 15 steps, 2048² | ~95 s | everyday assets |
+| `high` | `shape-large`, octree 384 | res 768, 25 steps, 4096² | ~8 min | separated fine parts, crisper texture |
+
+Individual overrides: `shape_model` (`small`/`large`), `paint_res`, `paint_steps`, `paint_tex` per
+request, or `HY3D_PAINT_RES` / `_STEPS` / `_TEX` / `HY3D_SHAPE_WEIGHTS_LARGE` in the environment.
+`shape-large` is a separate 4.9GB download:
+
+```bash
+hf download zimengxiong/hunyuan3d-mlx-shape-large --local-dir ~/AI/hunyuan3d-mlx/weights/shape-large
+```
+
+**Where texture detail goes:** paint renders six views weighted `front 1.0, back 0.5, left/right 0.1,
+top/bottom 0.05`. Generate from the angle the asset will be seen from — sides come out softer than
+the back, and top/bottom faces are nearly unpainted.
+
 ## Command line
 
 ```bash

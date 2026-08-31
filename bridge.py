@@ -61,7 +61,18 @@ PAINT_TIMEOUT = int(os.environ.get("HY3D_PAINT_TIMEOUT", "1800"))
 SHAPE_BACKEND = os.environ.get("HY3D_SHAPE_BACKEND", "auto")   # auto | mlx | comfy
 SHAPE_WEIGHTS = os.path.expanduser(os.environ.get(
     "HY3D_SHAPE_WEIGHTS", "~/AI/hunyuan3d-mlx/weights/shape-small"))
+SHAPE_WEIGHTS_LARGE = os.path.expanduser(os.environ.get(
+    "HY3D_SHAPE_WEIGHTS_LARGE", "~/AI/hunyuan3d-mlx/weights/shape-large"))
 SHAPE_TIMEOUT = int(os.environ.get("HY3D_SHAPE_TIMEOUT", "900"))
+
+# Quality presets. "fast" is the everyday setting; "high" swaps in the larger shape model and
+# paints at higher render/texture resolution — visibly crisper, and roughly 4x the wall time.
+# Measured on a lantern: fast ~95s total, high ~8min. Individual knobs below override the preset.
+QUALITY = os.environ.get("HY3D_QUALITY", "fast").lower()
+PRESETS = {
+    "fast": {"shape": "small", "res": 512, "paint_steps": 15, "tex": 2048},
+    "high": {"shape": "large", "res": 768, "paint_steps": 25, "tex": 4096},
+}
 HERE = os.path.dirname(os.path.abspath(__file__))
 CKPT = os.environ.get("HY3D_CKPT", "hunyuan3d-dit-v2_fp16.safetensors")
 BIND_HOST = os.environ.get("HY3D_HOST", "127.0.0.1")
@@ -308,6 +319,17 @@ def paint_available():
     return mlx_runtime_ok() and os.path.isdir(PAINT_WEIGHTS)
 
 
+def preset(name=None):
+    return PRESETS.get((name or QUALITY), PRESETS["fast"])
+
+
+def shape_weights_for(which):
+    """'large' falls back to small if the large weights were never downloaded."""
+    if which == "large" and os.path.isdir(SHAPE_WEIGHTS_LARGE):
+        return SHAPE_WEIGHTS_LARGE
+    return SHAPE_WEIGHTS
+
+
 def mlx_shape_available():
     return mlx_runtime_ok() and os.path.isdir(SHAPE_WEIGHTS)
 
@@ -320,16 +342,17 @@ def shape_backend():
     return "mlx" if mlx_shape_available() else "comfy"
 
 
-def shape_mlx(image_bytes, octree, steps, guidance):
+def shape_mlx(image_bytes, octree, steps, guidance, weights=None):
     """hy3d shape — MLX, ~11s, no ComfyUI involved."""
     tmpdir = tempfile.mkdtemp(prefix="hy3dshape")
     img, out = os.path.join(tmpdir, "ref.png"), os.path.join(tmpdir, "mesh.glb")
     try:
         with open(img, "wb") as fh:
             fh.write(image_bytes)
-        cmd = [PAINT_BIN, "shape", img, "-o", out, "--weights", SHAPE_WEIGHTS,
+        w = weights or SHAPE_WEIGHTS
+        cmd = [PAINT_BIN, "shape", img, "-o", out, "--weights", w,
                "--steps", str(steps), "--octree", str(octree), "--guidance", str(guidance)]
-        log(f"shape (mlx): octree={octree} steps={steps} guidance={guidance}")
+        log(f"shape (mlx, {os.path.basename(w)}): octree={octree} steps={steps} guidance={guidance}")
         r = subprocess.run(cmd, capture_output=True, timeout=SHAPE_TIMEOUT)
         if r.returncode != 0 or not os.path.exists(out):
             tail = (r.stderr or r.stdout).decode(errors="replace")[-800:]
@@ -349,7 +372,7 @@ def free_comfy_memory():
         log(f"could not ask ComfyUI to free memory (continuing): {e}")
 
 
-def paint_mesh(glb_bytes, image_bytes, model=None):
+def paint_mesh(glb_bytes, image_bytes, model=None, res=None, steps=None, tex=None):
     """Texture a GLB with hy3d paint. Returns the textured GLB bytes."""
     model = (model or PAINT_MODEL).lower()
     if model not in ("rgb", "pbr"):
@@ -366,8 +389,9 @@ def paint_mesh(glb_bytes, image_bytes, model=None):
         if _comfy_alive(COMFY_URL, timeout=2):
             free_comfy_memory()
         cmd = [PAINT_BIN, "paint", mesh, img, "-o", out,
-               "--weights", PAINT_WEIGHTS, "--model", model]
-        log(f"painting ({model}) — this takes several minutes")
+               "--weights", PAINT_WEIGHTS, "--model", model,
+               "--res", str(res), "--steps", str(steps), "--tex", str(tex)]
+        log(f"painting ({model}, res={res} steps={steps} tex={tex}) — this takes several minutes")
         r = subprocess.run(cmd, capture_output=True, timeout=PAINT_TIMEOUT)
         if r.returncode != 0 or not os.path.exists(out):
             tail = (r.stderr or r.stdout).decode(errors="replace")[-800:]
@@ -420,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
                     "comfy_url": COMFY_URL,
                     "checkpoint": CKPT,
                     "shape_backend": shape_backend(),
+                    "quality": {"preset": QUALITY, **preset(),
+                                "shape_large_available": os.path.isdir(SHAPE_WEIGHTS_LARGE)},
                     "mode": "shape + MLX texture" if paint_available() else "shape only (paint not installed)",
                     "paint": {"available": paint_available(), "binary": PAINT_BIN,
                               "weights": PAINT_WEIGHTS, "model": PAINT_MODEL},
@@ -474,10 +500,12 @@ class Handler(BaseHTTPRequestHandler):
         if PREPROCESS and data.get("preprocess", True):
             raw = preprocess(raw)
 
+        q = preset(data.get("quality"))
         backend = shape_backend()
         try:
             if backend == "mlx":
-                glb = shape_mlx(raw, octree, steps, cfg)
+                glb = shape_mlx(raw, octree, steps, cfg,
+                                weights=shape_weights_for(data.get("shape_model", q["shape"])))
             else:
                 ensure_comfy()
                 name = comfy_upload_image(f"hy3d_blender_{uuid.uuid4().hex[:8]}.png", raw)
@@ -493,7 +521,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if want_texture:
             try:
-                glb = paint_mesh(glb, raw, data.get("paint_model"))
+                glb = paint_mesh(
+                    glb, raw, data.get("paint_model"),
+                    res=int(data.get("paint_res", os.environ.get("HY3D_PAINT_RES", q["res"]))),
+                    steps=int(data.get("paint_steps", os.environ.get("HY3D_PAINT_STEPS", q["paint_steps"]))),
+                    tex=int(data.get("paint_tex", os.environ.get("HY3D_PAINT_TEX", q["tex"]))))
             except Exception as e:
                 return self._send(500, f"Shape succeeded but texturing failed: {e}")
 

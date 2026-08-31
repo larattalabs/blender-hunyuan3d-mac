@@ -176,6 +176,36 @@ door ~2.0, a tree ~5+. If the scene has existing objects, match against those in
 
 Skip the floor-drop line for something that hangs, mounts or floats.
 
+## Refining a result
+
+When something comes back disappointing, the levers in order of payoff (all measured on the same
+lantern reference):
+
+| lever | how | cost | what it buys |
+|---|---|---|---|
+| **bigger shape model** | `"shape_model": "large"` | 12s → 45s | the big one. Separated wire cage, defined rivets, crisper collar — soft blobs become parts |
+| **octree 384** | panel slider or `octree` | +5s | modest sharpening; more vertices |
+| **tuned paint** | `"paint_res": 768, "paint_steps": 25, "paint_tex": 4096` | 95s → ~6.5min | burner slots read as holes, less blotching. Hero assets only |
+| **both at once** | `"quality": "high"` | ~8 min | the preset that bundles the above |
+| **re-roll the reference** | new `--seed` | 25s | still the cheapest fix when the shape is simply wrong |
+
+**Where the texture detail goes.** The paint pipeline renders six views and weights them
+`front 1.0, back 0.5, left/right 0.1, top/bottom 0.05` (`Pipeline.swift`). So:
+
+- **Generate from the angle the asset will be seen from** — the reference view gets 10× the weight
+  of the sides and 20× the top. A prop seen mainly from its left should be generated from its left.
+- Sides come out softer than the back, and **top/bottom faces are nearly unpainted** — expect a
+  washed-out lid or base. Don't put a generated asset where the camera looks down on it.
+
+**Artifacts that are the model, not your settings:**
+
+- **Transparent things become opaque.** Glass, chrome and liquids get painted as pale solids with
+  highlights baked in — the lantern's chimney is a white blob. Fix in Blender: select those faces
+  and assign a real glass material; the geometry is usually right.
+- **The back is invented**, symmetrically, from the front. Plausible, not accurate.
+- **RGB paint bakes lighting in.** Use `pbr` when it must relight (see above).
+- **Hair-thin parts merge** into their surroundings at any octree.
+
 ## Limits — state these plainly, don't work around them silently
 
 - **No text→3D at the endpoint.** The model is image-conditioned; a text-only request returns an
