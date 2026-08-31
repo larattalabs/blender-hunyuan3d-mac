@@ -121,7 +121,7 @@ larger shape model and paints at higher resolution:
 | preset | shape | paint | time | what changes |
 |---|---|---|---|---|
 | `fast` | `shape-small`, octree 256 | res 512, 15 steps, 2048² | ~95 s | everyday assets |
-| `high` | `shape-large`, octree 384 | res 768, 25 steps, 4096² | ~8 min | separated fine parts, crisper texture |
+| `high` | `shape-large`, octree 384 | res 768, 25 steps, 4096² | ~6.5 min | separated fine parts, crisper texture |
 
 Individual overrides: `shape_model` (`small`/`large`), `paint_res`, `paint_steps`, `paint_tex` per
 request, or `HY3D_PAINT_RES` / `_STEPS` / `_TEX` / `HY3D_SHAPE_WEIGHTS_LARGE` in the environment.

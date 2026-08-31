@@ -186,7 +186,7 @@ lantern reference):
 | **bigger shape model** | `"shape_model": "large"` | 12s → 45s | the big one. Separated wire cage, defined rivets, crisper collar — soft blobs become parts |
 | **octree 384** | panel slider or `octree` | +5s | modest sharpening; more vertices |
 | **tuned paint** | `"paint_res": 768, "paint_steps": 25, "paint_tex": 4096` | 95s → ~6.5min | burner slots read as holes, less blotching. Hero assets only |
-| **both at once** | `"quality": "high"` | ~8 min | the preset that bundles the above |
+| **both at once** | `"quality": "high"` | ~6.5 min | the preset that bundles the above (45s shape + 5m45s paint) |
 | **re-roll the reference** | new `--seed` | 25s | still the cheapest fix when the shape is simply wrong |
 
 **Where the texture detail goes.** The paint pipeline renders six views and weights them
