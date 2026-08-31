@@ -34,6 +34,8 @@ Every other route to Hunyuan3D on a Mac is either shape-only or CUDA-only:
 - Apple Silicon Mac, macOS 14+. ~40GB of free memory during texture generation.
 - Blender with [BlenderMCP](https://github.com/ahujasid/blender-mcp) installed and its server started.
 - Xcode / Swift toolchain (to build the MLX engine) and `git`, `python3`, `curl`.
+  The bridge is stdlib-only on purpose: Blender's environment may resolve `python3` to Xcode's
+  (3.9 here) rather than your Homebrew one. Verified on both 3.9 and 3.14.
 - ~15GB of disk for weights.
 
 ## Install
