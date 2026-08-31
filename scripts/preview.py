@@ -21,11 +21,12 @@ cam.location = ctr + mathutils.Vector((1.6,-2.0,1.3))*size
 cam.rotation_euler = (mathutils.Vector(ctr)-cam.location).to_track_quat('-Z','Y').to_euler()
 light=bpy.data.objects.new("l", bpy.data.lights.new("l", type='SUN')); light.data.energy=4
 bpy.context.scene.collection.objects.link(light); light.rotation_euler=(math.radians(50),0,math.radians(40))
-# Environment light, not a flat colour: metal and roughness only read against something to reflect.
+# Neutral studio grey, not a sky: a blue sky tints every asset (and mirrors off smooth surfaces),
+# which makes it useless for judging whether a texture is faithful. Grey still gives metal and
+# roughness something to reflect.
 w=bpy.data.worlds.new("w"); w.use_nodes=True
 nt=w.node_tree; bg=nt.nodes["Background"]
-sky=nt.nodes.new("ShaderNodeTexSky"); sky.sun_elevation=math.radians(35); sky.sun_rotation=math.radians(140)
-nt.links.new(sky.outputs[0], bg.inputs[0]); bg.inputs[1].default_value=0.6
+bg.inputs[0].default_value=(0.55,0.55,0.55,1); bg.inputs[1].default_value=1.0
 bpy.context.scene.world=w
 
 # Report what the material actually carries — the quick way to tell RGB from PBR output.

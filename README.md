@@ -148,6 +148,44 @@ the back, and top/bottom faces are nearly unpainted.
 `make_reference.sh` is optional — it drives a local [Krea 2 Turbo MLX](https://github.com/avlp12/krea2_alis_mlx)
 install to produce reference images with 3D-friendly framing. Any image works; bring your own.
 
+## Game assets
+
+A generated mesh is not a game asset. The lantern arrived as **1,006,732 tris in 47,870
+disconnected islands with 27% of its edges non-manifold** — a raw isosurface. Decimating it
+directly shreds the UVs, and a 15k request stalls at 20,579 tris because non-manifold edges block
+edge collapse. Generating at `fast` does not help; it produces a *smaller* mesh with the same
+problems and less detail to bake from.
+
+```bash
+./scripts/gameify.sh model.glb model_game.glb 15000 2048
+```
+
+voxel remesh → triangulate + decimate to budget → smart UV unwrap → bake albedo, AO and a
+tangent-space normal map off the dense original. About 6 seconds. Measured:
+
+| asset | source | game-ready | islands after |
+|---|---|---|---|
+| stone lantern | 1,006,732 tris | 15,000 | 1 |
+| pine | 607,564 | 15,000 | 16 |
+| oak | 1,980,060 | 15,000 | 25 |
+| bare spindly tree | 135,348 | 15,000 | 373 |
+
+The dense mesh is the **bake source**, not the deliverable — its detail lives on in the normal map.
+That is the real argument for generating at `high`.
+
+**Thin structures are the limit.** Voxel remeshing rounds off anything near voxel size: the bare
+tree keeps its main branches but loses the finest twigs and breaks into 373 fragments where
+branches were thinner than a voxel. Chunky props survive nearly perfectly. Hero assets still want
+hand retopo.
+
+## Materials arrive dielectric
+
+glTF's spec default for `metallicFactor` is **1.0**, and hy3d's writer omits the factors — so every
+painted asset is *pure metal* unless corrected. Dense meshes hide it (they mostly reflect
+themselves); a smooth low-poly one mirrors the sky and reads pale blue. The bridge now patches the
+GLB before returning it, and `gameify.sh` forces dielectric unless a real metallic texture is
+present. If you use `hy3d` directly, set Metallic to 0 yourself.
+
 ## Measured on an M5 Max
 
 | step | time |

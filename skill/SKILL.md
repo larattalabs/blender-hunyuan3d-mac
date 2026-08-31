@@ -208,10 +208,33 @@ lantern reference):
 - **RGB paint bakes lighting in.** Use `pbr` when it must relight (see above).
 - **Hair-thin parts merge** into their surroundings at any octree.
 
+## Making it a game asset
+
+What comes out is a raw isosurface — hundreds of thousands of tris, tens of thousands of
+disconnected islands, ~27% non-manifold edges. Never hand that to an engine, and never try to
+decimate it directly (it shreds the UVs and stalls above budget):
+
+```bash
+"$HY3D_DIR/scripts/gameify.sh" model.glb model_game.glb 15000 2048
+```
+
+Remesh → decimate to budget → unwrap → bake albedo + AO + normal off the dense original, ~6s.
+Measured: lantern 1,006,732 → 15,000 tris (1 island); oak 1,980,060 → 15,000 (25 islands).
+
+- **Generate at `high`, then gameify.** The dense mesh is the bake source; its detail survives in
+  the normal map. Generating at `fast` to "get a smaller model" throws that away and still leaves
+  broken topology.
+- **Thin structures are the limit.** A bare spindly tree kept its main branches but lost fine twigs
+  and fell into 373 fragments. Chunky props come through nearly perfectly.
+- Budgets: 5–15k tris with a 2k texture is a reasonable background prop.
+
 ## Limits — state these plainly, don't work around them silently
 
 - **No text→3D at the endpoint.** The model is image-conditioned; a text-only request returns an
   error by design. Always make the image first.
+- **Everything arrives dielectric now.** glTF defaults `metallicFactor` to 1.0 and hy3d omits it, so
+  assets used to import as pure metal (a green pine rendering sky-blue). The bridge patches this on
+  the way out; if you invoke `hy3d` directly, set Metallic to 0 yourself.
 - **Texture works** (MLX port of Hunyuan3D-Paint, set up 2026-08-30) — no CUDA needed. The imported
   object arrives with a material and a baked texture image. Textures are convincing on hard-surface
   props; on smooth featureless forms the paint model bakes some shading smudges into the albedo.

@@ -406,6 +406,49 @@ def paint_mesh(glb_bytes, image_bytes, model=None, res=None, steps=None, tex=Non
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+def demetalise_glb(glb):
+    """Set metallicFactor to 0 on materials that have no metallic-roughness texture.
+
+    hy3d's GLB writer omits the pbrMetallicRoughness factors, and glTF's spec default for
+    metallicFactor is 1.0 — so every painted asset arrives as pure metal and mirrors whatever
+    environment it is dropped into (a green pine renders sky-blue). PBR output carries a real
+    MR texture and is left alone.
+    """
+    try:
+        if glb[:4] != b"glTF":
+            return glb
+        length = int.from_bytes(glb[8:12], "little")
+        off, chunks = 12, []
+        while off < length:
+            clen = int.from_bytes(glb[off:off + 4], "little")
+            ctype = glb[off + 4:off + 8]
+            chunks.append([ctype, bytearray(glb[off + 8:off + 8 + clen])])
+            off += 8 + clen
+        for i, (ctype, data) in enumerate(chunks):
+            if ctype != b"JSON":
+                continue
+            doc = json.loads(data.decode("utf-8"))
+            touched = 0
+            for mat in doc.get("materials", []):
+                pbr = mat.setdefault("pbrMetallicRoughness", {})
+                if "metallicRoughnessTexture" in pbr:
+                    continue
+                if pbr.get("metallicFactor") != 0:
+                    pbr["metallicFactor"] = 0
+                    touched += 1
+            if not touched:
+                return glb
+            out = json.dumps(doc, separators=(",", ":")).encode("utf-8")
+            out += b" " * (-len(out) % 4)
+            chunks[i][1] = bytearray(out)
+            log(f"patched {touched} material(s) to metallicFactor 0")
+        body = b"".join(len(d).to_bytes(4, "little") + t + bytes(d) for t, d in chunks)
+        return b"glTF" + (2).to_bytes(4, "little") + (12 + len(body)).to_bytes(4, "little") + body
+    except Exception as e:
+        log(f"could not patch the GLB materials, returning it unchanged: {e}")
+        return glb
+
+
 def resolve_image(image):
     """The addon sends base64; accept a local path or http(s) URL too."""
     if re.match(r"^https?://", image, re.IGNORECASE):
@@ -519,6 +562,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if not glb:
             return self._send(500, "Generation produced an empty GLB")
+        glb = demetalise_glb(glb)
 
         if want_texture:
             try:
