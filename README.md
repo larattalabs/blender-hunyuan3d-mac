@@ -280,6 +280,13 @@ but its cost scales with occupied volume (a bushy oak took **2h46m** against Hun
 its leaf-card output resists both decimation and remeshing. Hunyuan is the throughput and
 game-asset choice; TRELLIS is the hero-asset one.
 
+## Trees and foliage: use something else
+
+[`docs/procedural-vegetation.md`](docs/procedural-vegetation.md) — free Blender tree add-ons
+generate a species-varied tree in **0.2–0.6 s** with real branch hierarchy, instanced leaves and
+Pivot Painter wind export, against ~7 min here for a blobby canopy. This pipeline is for props.
+(Two of those add-ons need a one-line Blender 5.x fix, included.)
+
 ## Using it with a coding agent
 
 [`skill/SKILL.md`](skill/SKILL.md) is an [agent skill](https://docs.claude.com/en/docs/agents-and-tools/agent-skills)

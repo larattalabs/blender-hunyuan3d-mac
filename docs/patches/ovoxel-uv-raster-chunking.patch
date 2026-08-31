@@ -1,5 +1,5 @@
 --- /private/tmp/claude-501/-Users-noahlaratta/72c37742-d430-43cf-83af-686a1ab194b6/scratchpad/postprocess_cpu.py.bak	2026-08-31 10:13:22
-+++ /Users/noahlaratta/AI/trellis2-mlx/o-voxel/o_voxel/postprocess_cpu.py	2026-08-31 10:13:22
++++ /Users/noahlaratta/AI/trellis2-mlx/o-voxel/o_voxel/postprocess_cpu.py	2026-08-31 10:32:58
 @@ -10,6 +10,7 @@
  from typing import *
  from tqdm import tqdm
@@ -22,11 +22,6 @@
 +    # sort by bbox area (keeps each chunk uniform) and cap C * max_h * max_w.
      num_faces = faces_t.shape[0]
 -    chunk_size = 50000
--
--    for start in range(0, num_faces, chunk_size):
--        end = min(start + chunk_size, num_faces)
--        chunk_uvs = face_uvs_px[start:end]   # (C, 3, 2)
--        chunk_verts = face_verts[start:end]   # (C, 3, 3)
 +    _bx0 = face_uvs_px[..., 0].min(dim=1).values.floor().clamp(min=0).int()
 +    _bx1 = face_uvs_px[..., 0].max(dim=1).values.ceil().clamp(max=W - 1).int()
 +    _by0 = face_uvs_px[..., 1].min(dim=1).values.floor().clamp(min=0).int()
@@ -35,7 +30,11 @@
 +    _fh = (_by1 - _by0 + 1).clamp(min=0).long()
 +    order = torch.argsort(_fw * _fh)
 +    _w_cpu, _h_cpu = _fw[order].cpu(), _fh[order].cpu()
-+
+ 
+-    for start in range(0, num_faces, chunk_size):
+-        end = min(start + chunk_size, num_faces)
+-        chunk_uvs = face_uvs_px[start:end]   # (C, 3, 2)
+-        chunk_verts = face_verts[start:end]   # (C, 3, 3)
 +    texel_budget = int(os.environ.get("OVOXEL_RASTER_TEXELS", 16_000_000))
 +    max_chunk = 50000
 +
@@ -55,3 +54,29 @@
  
          # Bounding boxes per face: (C,)
          bb_min_x = chunk_uvs[..., 0].min(dim=1).values.floor().clamp(min=0).int()
+@@ -170,8 +195,24 @@
+             pos_buf[abs_y_flat, abs_x_flat] = pos_flat
+             mask_buf[abs_y_flat, abs_x_flat] = True
+ 
+-    return pos_buf.cpu().numpy(), mask_buf.cpu().numpy()
++    pos_np, mask_np = pos_buf.cpu().numpy(), mask_buf.cpu().numpy()
+ 
++    # UV padding. Rasterizing only true triangle interiors is correct but not enough for texture
++    # baking: on this kind of mesh two thirds of triangles are smaller than a texel, so their
++    # surface gets no sample at all and cv2.inpaint downstream has to invent it (visible as
++    # speckle). The previous fixed-chunk code got this for free by over-filling whole bounding
++    # boxes -- a side effect of grids so large that MPS returned garbage. Do it deliberately
++    # instead: grow the rasterized region outward by nearest neighbour.
++    pad_px = int(os.environ.get("OVOXEL_RASTER_PAD_PX", 4))
++    if pad_px > 0 and mask_np.any() and (~mask_np).any():
++        from scipy import ndimage
++        dist, (iy, ix) = ndimage.distance_transform_edt(~mask_np, return_indices=True)
++        grow = (~mask_np) & (dist <= pad_px)
++        pos_np[grow] = pos_np[iy[grow], ix[grow]]
++        mask_np = mask_np | grow
++
++    return pos_np, mask_np
++
+ 
+ def _grid_sample_3d_dense(attr_volume, coords, grid_size, query_pts, voxel_size, aabb, device):
+     """

@@ -14,8 +14,13 @@ survives the game-asset pipeline. Neither one wins outright.
 | subject | TRELLIS generate | TRELLIS export | TRELLIS total | Hunyuan total |
 |---|---|---|---|---|
 | bare spindly tree | 26.5 s | 70 s | **1m 37s** | ~7 min |
+| lantern (thin metal, hollow) | 143 s | 289 s | **7m 12s** | ~7 min |
 | pine (fine foliage) | 659 s | 66 s | **12m 5s** | ~7 min |
 | oak (dense canopy) | 1,884 s | 8,086 s | **2h 46m** | ~10 min |
+| chest (solid, dense) | 358 s | — | **failed (OOM)** | ~7 min |
+
+Cost tracks **occupied volume**, not visual complexity — which is backwards from intuition. A solid
+chest sampled at 17.4 s/step against the mostly-empty lantern's 6.3 s/step, and it never finished.
 
 TRELLIS runs a sparse-voxel pipeline at 1024³: cost tracks *occupied volume*, so a bare tree is
 20 seconds and a full canopy is half an hour — with an export (decimate + bake) that took over two
@@ -68,23 +73,44 @@ its preprocessing wants a gated background-removal model too. Two independent wo
    it is an unofficial re-upload, and **DINOv3 licence compliance is on you**. The clean path is
    requesting access from Meta.
 
-## A memory bug worth knowing about
+## A memory bug, a correctness bug, and a partial fix
 
 TRELLIS's UV rasterizer (`o-voxel/o_voxel/postprocess_cpu.py`, `_rasterize_uv_gpu`) chunks faces in
-fixed blocks of 50,000, but allocates its texel grid as `(C, max_h, max_w, 2)` using the **largest**
+fixed blocks of 50,000 but allocates its texel grid as `(C, max_h, max_w, 2)` using the **largest**
 UV bounding box in the chunk. One stretched triangle therefore sizes the grid for all 50,000 faces.
-On a hurricane lantern at 2048² that asked for **33.6 GiB** in a single allocation and died:
+On a hurricane lantern at 2048² that asked for **33.6 GiB** in one allocation and died.
 
-```
-RuntimeError: MPS backend out of memory (MPS allocated: 100.78 GiB, ... )
-Tried to allocate 33.61 GiB on shared pool.
-```
+Chasing it turned up a second, quieter problem. Measured on the lantern's own mesh at 512²:
 
-Faces are scatter-written by absolute pixel coordinate, so chunk order is irrelevant. The fix in
+| | texels written | vs. true triangle area |
+|---|---|---|
+| stock code | 1,089,798 | **6.8× too many** |
+| budgeted chunks | 160,657 | 160,406 px — exact |
+
+Two thirds of that mesh's UV triangles are smaller than a single texel (median area 0.23 px), so the
+analytic triangle area is knowable: the stock path was writing whole bounding boxes, not triangles —
+geometrically impossible, and consistent with MPS misbehaving on ~290M-element boolean indexing.
+
 [`patches/ovoxel-uv-raster-chunking.patch`](patches/ovoxel-uv-raster-chunking.patch) sorts faces by
-bounding-box area and caps each chunk at `C × max_h × max_w` texels
-(`OVOXEL_RASTER_TEXELS`, default 16M ≈ 1.3GB) instead of a fixed face count. This is also the
-likely cause of the oak's 2h15m export: not compute, but thrashing on absurd allocations.
+bbox area, caps each chunk at `C × max_h × max_w` texels (`OVOXEL_RASTER_TEXELS`, default 16M), and
+adds explicit nearest-neighbour UV padding (`OVOXEL_RASTER_PAD_PX`, default 4) to replace the
+dilation the over-fill was accidentally providing.
+
+**What the fix does and does not buy — measured, not assumed:**
+
+- **Fixes the lantern.** It crashed at 33.6 GiB before; it now completes (143s generate, 289s export).
+- **Does not fix everything.** The chest still died in the same function with a 12.9 GiB request.
+  The fix is partial and the underlying allocation strategy still needs work.
+- **Changes nothing visually.** Re-rendering the lantern with correct rasterization plus padding
+  gives an image identical to the over-filled one (mean absolute difference 0.01/255). The
+  geometrically wrong path was visually harmless here.
+- **No speedup.** Export was 289s unpatched, 315s patched. An earlier draft of this document
+  speculated the oak's 2h15m export was allocation thrashing; that is unverified and the lantern
+  evidence argues against it.
+
+**The lantern's pitted, speckled surface is TRELLIS's own texture**, not a rasterizer artifact —
+the geometry renders clean and untextured, and the albedo atlas carries the speckle. Do not blame
+the rasterizer for it, as this document previously implied.
 
 ## When to use which
 
