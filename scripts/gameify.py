@@ -113,7 +113,10 @@ def main():
         bpy.ops.object.join()
     source.name = "bake_source"
     size = max(source.dimensions)
-    voxel = size / 200.0 if o["voxel"] == "auto" else float(o["voxel"])
+    # size/400, not /200: at /200 a 2m spindly tree remeshed into 373 disconnected fragments
+    # because its branches were thinner than a voxel; /400 brought that to 27 with no cost on
+    # chunky assets (a lantern stayed at 1 island either way, +0.3s of remesh).
+    voxel = size / 400.0 if o["voxel"] == "auto" else float(o["voxel"])
 
     n, isl, nm = mesh_stats(source)
     log(f"source: {n} tris, {isl} islands, {nm} non-manifold edges, {size:.3f} units tall")
