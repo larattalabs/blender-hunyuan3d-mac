@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The pipeline itself needs Apple Silicon, Blender and ~20 GB of weights, so CI
+# checks what can be checked anywhere: every Python file compiles and every
+# shell script passes shellcheck.
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Compile Python
+        run: python -m py_compile $(git ls-files '*.py')
+      - name: Shellcheck
+        run: shellcheck -S warning $(git ls-files '*.sh')
