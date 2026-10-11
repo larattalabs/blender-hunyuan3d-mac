@@ -8,6 +8,7 @@ SUPPORT="$HOME/Library/Application Support/Blender"
 [ -d "$SUPPORT" ] || { echo "no Blender support dir at $SUPPORT" >&2; exit 1; }
 
 # Newest installed Blender version, unless one is named explicitly.
+# shellcheck disable=SC2010  # entries are Blender version folders like 4.5; no odd filenames
 VERSION="${BLENDER_VERSION:-$(ls "$SUPPORT" | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -1)}"
 [ -n "$VERSION" ] || { echo "could not find a Blender version under $SUPPORT" >&2; exit 1; }
 
